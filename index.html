@@ -71,10 +71,18 @@
   }
   .kotak-cari input:focus{border-color:var(--accent); background:#fff; outline:none}
   .kotak-cari .hapus{
-    position:absolute; right:6px; top:6px; border:0; background:transparent;
-    color:var(--ink-3); font-size:18px; line-height:1; padding:4px 7px; border-radius:6px;
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    width:30px; height:30px; padding:0; border:0; background:transparent;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--ink-3); font-size:19px; line-height:1; border-radius:6px;
   }
   .kotak-cari .hapus:hover{background:var(--line-2); color:var(--ink)}
+  /* Satu tombol hapus saja: sembunyikan tombol bawaan type=search. */
+  .kotak-cari input[type="search"]::-webkit-search-cancel-button{
+    -webkit-appearance:none; appearance:none; display:none;
+  }
+  .kotak-cari input[type="search"]::-ms-clear{display:none;width:0;height:0}
+  #q:placeholder-shown + .hapus{display:none}
   .bantuan{margin-top:7px; font-size:12px; color:var(--ink-2)}
 
   .chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:11px}
@@ -92,6 +100,7 @@
     flex:1; min-width:0; font:inherit; font-size:12.5px; padding:6px 8px;
     border:1px solid var(--line); border-radius:8px; background:#fff;
   }
+  .kalimat.tujuan-pencarian{outline:2px solid var(--accent); outline-offset:3px; scroll-margin:18px}
 
   .hasil-info{
     padding:9px 16px; border-bottom:1px solid var(--line-2); background:var(--surface-2);
@@ -233,6 +242,28 @@
   .sub-relasi p{margin:0 0 9px; font-size:12.5px; color:var(--warn)}
   .sub-relasi .ent{background:#fff}
   .def-kepala{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap}
+
+  /* ---------- hasil pencarian utama (desktop, sesudah Enter) ---------- */
+  .hasil-utama{max-width:980px;margin:0 auto}
+  .hasil-utama-kepala{border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:20px}
+  .hasil-utama-kepala h2{margin:6px 0 0;font-size:30px;line-height:1.18;letter-spacing:-.02em}
+  .hasil-utama-kepala .hitung{font-family:var(--font-data);font-size:11.5px;color:var(--ink-2);margin-top:8px}
+  .hasil-kelompok{margin:24px 0 8px}
+  .hasil-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+  .hasil-kartu{
+    width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--r);padding:13px 14px;min-height:84px;
+  }
+  .hasil-kartu:hover{border-color:var(--accent);background:#F4F8FD}
+  .hasil-kartu .atas{display:flex;align-items:flex-start;gap:8px}
+  .hasil-kartu .nama{font-weight:700;font-size:15px;line-height:1.35;color:var(--ink)}
+  .hasil-kartu .lbl{margin-left:auto;flex:none}
+  .hasil-kartu .meta{font-family:var(--font-data);font-size:10.5px;color:var(--ink-3);margin-top:7px}
+  .hasil-kartu .cuplik{font-size:12.5px;color:var(--ink-2);margin-top:7px;line-height:1.5}
+  .hasil-kartu .buka{font-family:var(--font-data);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-top:8px}
+  .hasil-pesan{max-width:620px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+  .hasil-pesan b{display:block;font-size:17px;margin-bottom:5px}
+  @media (max-width:860px){.hasil-utama{display:none}}
 
   /* ---------- riwayat pencarian ---------- */
   .riwayat{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:10px}
@@ -394,7 +425,7 @@
       <div class="chips" id="saring-label" role="group" aria-label="Saring menurut jenis istilah"></div>
 
       <div class="baris-saring">
-        <select id="saring-penyakit" aria-label="Saring menurut penyakit"></select>
+        <select id="saring-penyakit" aria-label="Cari dalam halaman penyakit"></select>
         <select id="urut" aria-label="Urutan hasil">
           <option value="frek">Urut: paling sering</option>
           <option value="abjad">Urut: abjad</option>
@@ -402,7 +433,7 @@
       </div>
     </div>
 
-    <div class="hasil-info">
+    <div class="hasil-info" id="hasil-pencarian">
       <span class="eyebrow" id="hasil-hitung"></span>
       <span class="eyebrow" id="hasil-kalimat"></span>
     </div>
@@ -572,14 +603,52 @@ const BENTUK_ARAH = {
 
 /* ---------- normalisasi & pencocokan berbatas kata ---------- */
 const norm = s => (s||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
-/* Pencocokan harus mulai di AWAL KATA: "flu" tidak boleh cocok di dalam
-   "influenza", tetapi "pneumo" tetap cocok di awal "pneumonia". */
+/* Untuk NAMA ISTILAH / live suggestion, awalan kata masih boleh cocok:
+   "bron" dapat menyarankan "bronkitis" selama pengguna masih mengetik. */
 const cocokKata = (hay, qn) => !qn || (" "+hay).includes(" "+qn);
+/* Untuk ISI KALIMAT SUMBER, frasa harus berakhir di batas kata juga:
+   "mengi" cocok dengan "mengi", tetapi tidak dengan "mengira". */
+const cocokFrasaUtuh = (hay, qn) => !qn || (" "+hay+" ").includes(" "+qn+" ");
 
 const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ---------- gaya lema kamus ----------
+   Istilah umum ditampilkan dengan huruf kecil seperti lema kamus. Data korpus,
+   teks kalimat, offset, dan nilai internal TIDAK diubah. Singkatan/akronim,
+   nama diri/eponim, serta nama dagang mempertahankan kapitalisasi semestinya. */
+const AKRONIM_TAMPIL = new Map([
+  ["ards","ARDS"],["bcg","BCG"],["copd","COPD"],["covid-19","COVID-19"],
+  ["dvt","DVT"],["e","E"],["h","H"],["hr","HR"],["hrze","HRZE"],
+  ["ics","ICS"],["ipf","IPF"],["kdt","KDT"],["kpksk","KPKSK"],
+  ["laba","LABA"],["mis-c","MIS-C"],["nsaid","NSAID"],["nsclc","NSCLC"],
+  ["oat","OAT"],["ppok","PPOK"],["r","R"],["rh","RH"],["rhze","RHZE"],
+  ["ro","RO"],["s","S"],["saba","SABA"],["sclc","SCLC"],["sr","SR"],
+  ["tb","TB"],["tbc","TBC"],["xl","XL"],["z","Z"]
+]);
+const NAMA_DIRI_TAMPIL = new Map([
+  ["horner","Horner"],
+  ["calmette-guerin","Calmette-Guerin"]
+]);
+function gayaLema(teks, entri){
+  const asli = String(teks==null?"":teks);
+  if(entri && entri.tipe_obat && entri.tipe_obat.includes("dagang")) return asli;
+  return asli.replace(/[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*/gu, tok=>{
+    const k = tok.toLowerCase();
+    if(AKRONIM_TAMPIL.has(k)) return AKRONIM_TAMPIL.get(k);
+    if(NAMA_DIRI_TAMPIL.has(k)) return NAMA_DIRI_TAMPIL.get(k);
+    /* Regimen seperti BpaL/BpaLM: kapital internalnya bermakna, bukan Title Case. */
+    if(/[A-Z].*[A-Z]/.test(tok) && /[a-z]/.test(tok)) return tok;
+    return k;
+  });
+}
+const namaPenyakitTeks = nama => gayaLema(nama, null);
+const namaPenyakit = nama => esc(namaPenyakitTeks(nama));
 /* nama istilah: dimiringkan bila asing */
 const nm = (teks, lema) => ASING.has(lema) ? '<i class="asing">'+esc(teks)+'</i>' : esc(teks);
-const namaEntri = e => nm(e.tampil, e.lema);
+const teksEntri = e => e._judulBaku || e.tampil;
+const teksEntriKamus = e => gayaLema(teksEntri(e), e);
+const namaEntri = e => nm(teksEntriKamus(e), e.lema);
+const namaBentuk = e => nm(gayaLema(e.tampil, e), e.lema);
 
 // indeks pencarian
 ENTRI.forEach((e,i)=>{
@@ -598,18 +667,51 @@ KAL.forEach(k => { k._n = norm(k.teks); });
    saringan — jadi tidak ada yang disembunyikan. */
 const petaLema = new Map();
 ENTRI.forEach(e=>petaLema.set(e.lema+"|"+e.label, e));
+
+/* Normalisasi tersembunyi khusus kata tidak baku nafas/bernafas.
+   Ini BUKAN kategori bentuk baru: halaman tidak baku diserap ke halaman baku,
+   tetapi teks dan rentang pada kalimat sumber tetap persis seperti korpus.
+   Hubungan ejaan/asing/setara/panjang/awam yang sudah ada tidak disentuh. */
+const GABUNG_TIDAK_BAKU = {
+  "sesak nafas|GEJALA"          : "sesak napas|GEJALA",
+  "kesulitan bernafas|GEJALA"  : "kesulitan bernapas|GEJALA",
+  "nafas berbunyi|GEJALA"      : "napas berbunyi|GEJALA"
+};
+const JUDUL_BAKU_TERSEMBUNYI = {
+  "kesulitan menarik nafas|GEJALA" : "Kesulitan menarik napas"
+};
+
 ENTRI.forEach(e=>{
-  const h = e.baku ? petaLema.get(e.baku+"|"+e.label) : null;
+  const kunci = e.lema+"|"+e.label;
+  const sasaranGabung = GABUNG_TIDAK_BAKU[kunci];
+  const hGabung = sasaranGabung ? petaLema.get(sasaranGabung) : null;
+  const hBiasa = e.baku ? petaLema.get(e.baku+"|"+e.label) : null;
+  const h = hGabung || hBiasa;
+  e._silentGabung = !!hGabung;
+  e._judulBaku = JUDUL_BAKU_TERSEMBUNYI[kunci] || null;
   e._kepala = h ? h._i : e._i;
-  e._bakuLuar = (e.baku && !h) ? e.baku : null;   // baku tanpa entri sendiri
-  e._jenis = e.baku ? (JENIS_BENTUK[e.lema+"|"+e.label] || "awam") : "utama";
+  e._bakuLuar = (!hGabung && e.baku && !hBiasa) ? e.baku : null;
+  e._jenis = e.baku ? (JENIS_BENTUK[kunci] || "awam") : "utama";
   e._grup = [];
+  if(e._judulBaku) e._hay += " " + norm(e._judulBaku);
 });
 ENTRI.forEach(e=>ENTRI[e._kepala]._grup.push(e._i));
 ENTRI.forEach(e=>e._grup.sort((a,b)=>
   (a===e._i?-1:b===e._i?1:0) || ENTRI[b].n-ENTRI[a].n));
 const kepalaDari = e => ENTRI[e._kepala];
 const kemGrupSemua = e => kepalaDari(e)._grup.flatMap(i=>ENTRI[i].kemunculan);
+
+/* Agar pencarian bentuk tidak baku tetap menemukan halaman baku, bentuk lama
+   menjadi alias pencarian tersembunyi dan penyakit asal kemunculannya digabung. */
+ENTRI.filter(e=>e._silentGabung).forEach(e=>{
+  const h = kepalaDari(e);
+  h._hay += " " + e._hay;
+  if(!h._aliasGabung) h._aliasGabung = new Set();
+  h._aliasGabung.add(e.lema);
+  h._aliasGabung.add(norm(e.tampil));
+  e._pyk.forEach(p=>h._pyk.add(p));
+  h._nGabung = (h._nGabung == null ? h.n : h._nGabung) + e.n;
+});
 
 /* ---------- indeks penyakit utama ----------
    Penaut entitas -> penyakit adalah penyakit yang DIBAHAS DOKUMEN sumber.
@@ -654,7 +756,8 @@ function hitungAtr(kems){
 ENTRI.forEach(e=>{
   e.kemunculan.forEach(m=>{
     const k = KAL[m.k];
-    if(pykIdx[k.pyk]) catat(pykIdx[k.pyk][e.label], e._i, {e:e._i}, k);
+    const iTampil = e._silentGabung ? e._kepala : e._i;
+    if(pykIdx[k.pyk]) catat(pykIdx[k.pyk][e.label], iTampil, {e:iTampil}, k);
   });
   e._pykRinci = rinciPenyakit(e.kemunculan);
   e._atr = hitungAtr(e.kemunculan);
@@ -746,14 +849,23 @@ function catatPencarian(teks){
   riwayat = [t, ...riwayat.filter(x=>x.toLowerCase()!==t.toLowerCase())].slice(0,8);
   simpanRiwayat(); gambarRiwayat();
 }
-/* satu klik pada riwayat = langsung terbuka hasilnya, tanpa menekan Enter */
+/* satu klik pada riwayat = jalankan kembali pencarian dan tampilkan daftar hasil */
 function jalankanRiwayat(t){
+  pulihkanPanelSetelahHasil();
   const kotak = document.getElementById("q");
-  kotak.value = t; state.q = t; state.atr = null; state.bentuk = null;
-  cari(); catatPencarian(t);
-  if(pykTepat) bukaPenyakit(pykTepat);
-  else if(hasil.length) bukaEntri(hasil[0]._i);
-  else if(pykCocok.length) bukaPenyakit(pykCocok[0].nama);
+  kotak.value = t; state.q = t; state.atr = null; state.bentuk = null; state.pbentuk = null;
+  enterGagal = null; cari(); catatPencarian(t);
+  const mobile = !!(window.matchMedia && window.matchMedia("(max-width:860px)").matches);
+  if(mobile){
+    hasilRuteAktif = true;
+    rekamRuteHasil(false);
+    scrollKeHasilMobile();
+  }else{
+    const qn = norm(state.q);
+    enterGagal = (qn && !enterDesktopValid(qn)) ? t.trim() : null;
+    gambarDaftar(); gambarHasilDesktop();
+    rekamRuteHasil(false);
+  }
 }
 function gambarRiwayat(){
   const box = document.getElementById("riwayat");
@@ -774,6 +886,9 @@ const state = { q:"", label:new Set(), penyakit:"", urut:"frek",
                 tampilan:"entri", pilih:null, buka:null, batas:8, atr:null, bentuk:null,
                 pbentuk:null, pbatas:6 };
 let hasil = [], kalCocok = new Set(), posCocok = new Map(), pykCocok = [], pykTepat = null;
+/* Hasil pencarian adalah satu langkah navigasi tersendiri pada SEMUA perangkat.
+   Desktop memakainya untuk panel kanan; HP memakainya untuk daftar hasil di bawah pencarian. */
+let hasilRuteAktif = false;
 
 /* ---------- riwayat peramban: tombol kembali ----------
    Tanpa ini, tombol kembali di ponsel atau Windows menutup aplikasi.
@@ -783,11 +898,19 @@ let hasil = [], kalCocok = new Set(), posCocok = new Map(), pykCocok = [], pykTe
 let pulihkan = false;
 const adaKelas = c => { const k = document.body && document.body.classList;
   return !!(k && k.contains && k.contains(c)); };
+function posisiHasilSekarang(){
+  const mobile = !!(window.matchMedia && window.matchMedia("(max-width:860px)").matches);
+  if(mobile) return window.scrollY || window.pageYOffset || 0;
+  const box = document.getElementById("entri");
+  return box ? box.scrollTop : 0;
+}
 function rute(){
   return {t:state.tampilan, pilih:state.pilih, buka:state.buka, bentuk:state.bentuk,
           pbentuk:state.pbentuk, pbatas:state.pbatas,
           atr:state.atr, q:state.q, label:[...state.label], penyakit:state.penyakit,
-          urut:state.urut, batas:state.batas, panel:adaKelas("lihat-entri")};
+          urut:state.urut, batas:state.batas, panel:adaKelas("lihat-entri"),
+          hasil:!!hasilRuteAktif, hasilScroll:hasilRuteAktif ? posisiHasilSekarang() : 0,
+          enterGagal:enterGagal};
 }
 let riwayatHidup = true;      // Safari menolak History API pada protokol file://
 const KUNCI_RUTE_SESI = "kamus_paru_rute_aktif_v1";
@@ -809,6 +932,23 @@ function dorongRute(ganti){
   try{ history[ganti ? "replaceState" : "pushState"](rr, ""); }
   catch(err){ riwayatHidup = false; }
 }
+function rekamRuteHasil(ganti){
+  hasilRuteAktif = true;
+  const rr = rute();
+  rr.hasil = true;
+  /* Enter berulang pada hasil yang sama cukup memperbarui state aktif, tidak
+     menumpuk langkah Back yang identik. */
+  let pakaiGanti = !!ganti;
+  try{ if(history.state && history.state.hasil) pakaiGanti = true; }catch(err){}
+  simpanRuteSesi(rr);
+  if(!riwayatHidup) return;
+  try{ history[pakaiGanti ? "replaceState" : "pushState"](rr, ""); }
+  catch(err){ riwayatHidup = false; }
+}
+function simpanPosisiHasilAktif(){
+  if(!hasilRuteAktif) return;
+  rekamRuteHasil(true);
+}
 function terapkanRute(r){
   if(!r) return;
   pulihkan = true;
@@ -818,13 +958,37 @@ function terapkanRute(r){
   state.buka = r.buka || null; state.bentuk = r.bentuk || null;
   state.pbentuk = r.pbentuk || null; state.pbatas = r.pbatas || 6;
   state.atr = r.atr || null; state.batas = r.batas || 8;
+  enterGagal = (r.enterGagal===undefined ? null : r.enterGagal);
+  hasilRuteAktif = !!r.hasil;
+  hasilDesktopAktif = false;
   const kotak = document.getElementById("q"); if(kotak) kotak.value = state.q;
   selaraskanSaringan();
   cari();
-  if(state.tampilan==="penyakit") gambarPenyakit(); else gambarEntri();
-  const kls = document.body && document.body.classList;
-  if(kls) (r.panel ? kls.add : kls.remove).call(kls, "lihat-entri");
-  simpanRuteSesi(rute());
+
+  const mobile = !!(window.matchMedia && window.matchMedia("(max-width:860px)").matches);
+  if(hasilRuteAktif){
+    if(mobile){
+      /* Di HP hasil hidup di panel pencarian, bukan panel kanan. */
+      document.body.classList.remove("lihat-entri");
+    }else{
+      gambarHasilDesktop();
+    }
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      const y = Number(r.hasilScroll)||0;
+      if(mobile){
+        const target = document.getElementById("hasil-pencarian");
+        const tujuan = y>0 ? y : (target ? target.getBoundingClientRect().top + (window.pageYOffset||0) - 8 : 0);
+        window.scrollTo(0, tujuan);
+      }else{
+        const box = document.getElementById("entri"); if(box) box.scrollTop = y;
+      }
+    }));
+  }else{
+    if(state.tampilan==="penyakit") gambarPenyakit(); else gambarEntri();
+    const kls = document.body && document.body.classList;
+    if(kls) (r.panel ? kls.add : kls.remove).call(kls, "lihat-entri");
+  }
+  simpanRuteSesi(r);
   pulihkan = false;
 }
 function selaraskanSaringan(){
@@ -841,9 +1005,15 @@ function cari(){
   kalCocok = new Set(); posCocok = new Map();
   if(qn){
     for(const k of KAL){
-      if(cocokKata(k._n, qn)){
-        kalCocok.add(k.i);
-        posCocok.set(k.i, cariSemua(k.teks, state.q));
+      /* "Cari dalam halaman" membatasi ruang pencarian kalimat. Kecocokan
+         kalimat harus berupa kata/frasa utuh, bukan awalan kata. */
+      if(state.penyakit && k.pyk!==state.penyakit) continue;
+      if(cocokFrasaUtuh(k._n, qn)){
+        const posisi = cariSemua(k.teks, state.q);
+        if(posisi.length){
+          kalCocok.add(k.i);
+          posCocok.set(k.i, posisi);
+        }
       }
     }
   }
@@ -854,21 +1024,29 @@ function cari(){
   if(pykTepat) pykCocok = pykCocok.slice().sort((a,b)=>
     (b.nama===pykTepat?1:0)-(a.nama===pykTepat?1:0));
   hasil = ENTRI.filter(e=>{
-    if(e._kePenyakit) return false;          // sudah diwakili halaman penyakit
+    if(e._kePenyakit) return false;
+    if(e._silentGabung) return false;
     if(state.label.size && !state.label.has(e.label)) return false;
-    if(state.penyakit && !e._pyk.has(state.penyakit)) return false;
-    if(!qn) return true;
+
+    /* Untuk tiap kartu hasil, kecocokan kalimat berasal dari kemunculan entri
+       itu sendiri. Hanya bentuk salah-eja yang diserap diam-diam yang ikut
+       digabung ke kepala bakunya. */
+    const kemsCari = e._aliasGabung
+      ? e.kemunculan.concat(...e._grup.map(i=>ENTRI[i]).filter(x=>x._silentGabung).map(x=>x.kemunculan))
+      : e.kemunculan;
+    const kemsDalamHalaman = state.penyakit
+      ? kemsCari.filter(m=>KAL[m.k].pyk===state.penyakit)
+      : kemsCari;
+    if(state.penyakit && !kemsDalamHalaman.length) return false;
+    if(!qn){ e._cocokLema=false; e._cocokKal=false; e._kalTujuan=null; return true; }
+
     e._cocokLema = cocokKata(e._hay, qn);
-    e._cocokKal  = e.kemunculan.some(m=>kalCocok.has(m.k));
-    if(e._cocokKal && !e._cocokLema) e._jarak = jarakTerdekat(e);
+    e._cocokKal  = kemsDalamHalaman.some(m=>kalCocok.has(m.k));
+    e._kalTujuan = e._cocokKal ? kalimatCocokTerbaik(e, kemsDalamHalaman) : null;
+    if(e._cocokKal && !e._cocokLema) e._jarak = jarakTerdekat(e, kemsDalamHalaman);
     return e._cocokLema || e._cocokKal;
   });
   if(qn){
-    /* Hasil dari kalimat diurutkan menurut JARAK antara istilah teranotasi
-       dan frasa yang dicari, bukan menurut frekuensi lema. Tanpa ini
-       "cairan menumpuk di sekitar paru-paru" memunculkan `sesak napas`
-       (frasa itu ada 88 karakter dari spannya) di atas `efusi pleura`
-       (2 karakter). */
     hasil.sort((a,b)=>{
       const sa = peringkat(a, qn), sb = peringkat(b, qn);
       if(sa!==sb) return sa-sb;
@@ -885,13 +1063,13 @@ function cari(){
 }
 function peringkat(e, qn){
   if(!e._cocokLema) return 3;
-  if(e.lema===qn || norm(e.tampil)===qn) return 0;
+  if(e.lema===qn || norm(teksEntri(e))===qn || (e._aliasGabung && e._aliasGabung.has(qn))) return 0;
   if(e._hay.startsWith(qn)) return 1;
   return 2;
 }
-function jarakTerdekat(e){
+function jarakTerdekat(e, kems){
   let best = Infinity;
-  e.kemunculan.forEach(m=>{
+  (kems || kemGrupSemua(e)).forEach(m=>{
     const pos = posCocok.get(m.k); if(!pos) return;
     pos.forEach(([s,t])=>{
       const d = (t <= m.s) ? (m.s - t) : (m.e <= s ? s - m.e : 0);
@@ -900,8 +1078,20 @@ function jarakTerdekat(e){
   });
   return best;
 }
+function kalimatCocokTerbaik(e, kems){
+  let bestK = null, bestD = Infinity;
+  (kems || kemGrupSemua(e)).forEach(m=>{
+    const pos = posCocok.get(m.k); if(!pos) return;
+    pos.forEach(([s,t])=>{
+      const d = (t <= m.s) ? (m.s - t) : (m.e <= s ? s - m.e : 0);
+      if(d < bestD){ bestD=d; bestK=m.k; }
+    });
+  });
+  return bestK;
+}
 
 /* ---------- daftar hasil ---------- */
+let enterGagal = null;
 function gambarDaftar(){
   const d = document.getElementById("daftar");
   document.getElementById("hasil-hitung").textContent =
@@ -912,15 +1102,16 @@ function gambarDaftar(){
   const kepalaPyk = pykCocok.length
     ? '<div class="grup-penyakit"><span class="eyebrow">Halaman penyakit</span>' +
       pykCocok.map(p=>'<button class="kartu-pyk" data-pyk="'+esc(p.nama)+'">'+
-        '<i class="titik bg-PENYAKIT"></i><span class="nm">'+esc(p.nama)+'</span>'+
+        '<i class="titik bg-PENYAKIT"></i><span class="nm">'+namaPenyakit(p.nama)+'</span>'+
         '<span class="kt">'+esc(p.kategori)+' · '+p.dokumen+' halaman</span></button>').join("") +
       '</div>'
     : "";
 
   if(!hasil.length){
-    d.innerHTML = kepalaPyk + '<div class="kosong"><b>Tidak ada istilah yang cocok.</b>' +
-      'Coba kata yang lebih pendek, hilangkan saringannya, atau ketik ' +
-      'potongan kalimat apa adanya — pencarian juga menelusuri isi kalimat sumber.</div>';
+    /* Bila masih ada halaman penyakit yang cocok, daftar itu sudah merupakan hasil.
+       Jangan tambahkan pesan "tidak ada istilah" yang dapat membingungkan. */
+    d.innerHTML = kepalaPyk || '<div class="kosong"><b>Tidak ada istilah yang cocok.</b>' +
+      'Coba kata lain atau ketik potongan kalimat apa adanya.</div>';
     pasangKartuPyk(d);
     return;
   }
@@ -928,20 +1119,21 @@ function gambarDaftar(){
   const potong = hasil.slice(0,300);
   d.innerHTML = kepalaPyk + potong.map(e=>{
     let cuplik = "", asal = "";
-    if(qn && !e._cocokLema && e._cocokKal){
-      const m = e.kemunculan.find(m=>kalCocok.has(m.k));
-      const k = KAL[m.k];
+    if(qn && !e._cocokLema && e._cocokKal && e._kalTujuan!=null){
+      const k = KAL[e._kalTujuan];
       cuplik = '<div class="cuplik">' + sorotCari(k.teks, state.q) + '</div>';
-      asal = '<div class="asal">cocok di kalimat sumber · ' + esc(k.pyk) + '</div>';
+      asal = '<div class="asal">cocok di kalimat sumber · ' + namaPenyakit(k.pyk) + '</div>';
     }
     const kep = kepalaDari(e);
     const arah = (kep._i!==e._i)
-      ? '<div class="asal">bentuk lain dari ' + esc(kep.tampil) + '</div>' : "";
-    return '<button class="item" role="option" data-i="'+e._i+'" '+
+      ? '<div class="asal">bentuk lain dari ' + namaBentuk(kep) + '</div>' : "";
+    const tujuanKal = (qn && !e._cocokLema && e._cocokKal && e._kalTujuan!=null)
+      ? ' data-k="'+e._kalTujuan+'"' : '';
+    return '<button class="item" role="option" data-i="'+e._i+'"'+tujuanKal+' '+
       (terpilihDiDaftar(e)?'aria-current="true"':'')+'>'+
       '<span class="judul"><span class="lema">'+namaEntri(e)+'</span>'+
       '<span class="lbl '+e.label+'">'+e.label+'</span>'+
-      '<span class="n">'+e.n+'×</span></span>'+ arah + cuplik + asal + '</button>';
+      '<span class="n">'+(e._nGabung||e.n)+'×</span></span>'+ arah + cuplik + asal + '</button>';
   }).join("") + (hasil.length>300
       ? '<div class="kosong">Menampilkan 300 istilah teratas dari '+hasil.length+'. Persempit pencarian.</div>' : "");
   pasangKartuPyk(d);
@@ -951,16 +1143,112 @@ const terpilihDiDaftar = e => state.tampilan==="entri" && (state.bentuk
   : state.pilih===e._i);
 function pasangKartuPyk(akar){
   akar.querySelectorAll("[data-pyk]").forEach(b=>b.onclick=ev=>{
-    ev.stopPropagation(); bukaPenyakit(b.dataset.pyk);
+    ev.stopPropagation();
+    simpanPosisiHasilAktif();
+    bukaPenyakit(b.dataset.pyk);
   });
+}
+
+/* ---------- panel hasil utama desktop: hanya setelah Enter ---------- */
+let hasilDesktopAktif = false;
+const layarMobile = () => !!(window.matchMedia && window.matchMedia("(max-width:860px)").matches);
+
+function pulihkanPanelSetelahHasil(){
+  if(!hasilDesktopAktif && !hasilRuteAktif) return;
+  hasilDesktopAktif = false;
+  hasilRuteAktif = false;
+  if(layarMobile()) return;
+  if(state.tampilan==="penyakit" && state.buka) gambarPenyakit();
+  else gambarEntri();
+}
+
+/* Filter/sort mengubah isi hasil, bukan keluar dari mode Hasil Pencarian. */
+function segarkanHasilDesktopJikaAktif(){
+  if(hasilDesktopAktif && !layarMobile()) gambarHasilDesktop();
+  if(hasilRuteAktif) rekamRuteHasil(true);
+}
+
+function gambarHasilDesktop(){
+  if(layarMobile()) return;
+  hasilDesktopAktif = true;
+  hasilRuteAktif = true;
+  const box = document.getElementById("entri");
+  const qt = (state.q||"").trim();
+  const qn = norm(qt);
+  document.body.classList.add("lihat-entri");
+
+  const konteksHalaman = state.penyakit ? ' dalam halaman '+namaPenyakit(state.penyakit) : '';
+  const kepala = '<div class="hasil-utama-kepala">'+
+    '<span class="eyebrow">Hasil pencarian</span>'+
+    '<h2>'+(qt ? 'Hasil untuk “'+esc(qt)+'”'+konteksHalaman : 'Hasil pencarian'+konteksHalaman)+'</h2>'+
+    '<div class="hitung">'+pykCocok.length+' halaman penyakit · '+hasil.length+' istilah · '+
+      (state.q ? kalCocok.size+' kalimat cocok' : KAL.length+' kalimat sumber')+'</div></div>';
+
+  if(enterGagal!==null){
+    box.innerHTML = '<div class="hasil-utama">'+kepala+
+      '<div class="hasil-pesan"><b>Maaf, tidak ditemukan kata yang dicari.</b>'+
+      '<span>Anda mencari kata <strong>'+esc(enterGagal)+'</strong>.</span></div></div>';
+    box.scrollTop = 0;
+    box.focus({preventScroll:true});
+    return;
+  }
+
+  let isi = '';
+  if(pykCocok.length){
+    isi += '<h3 class="bagian hasil-kelompok">Halaman penyakit</h3><div class="hasil-grid">'+
+      pykCocok.map(p=>'<button class="hasil-kartu" data-pyk="'+esc(p.nama)+'">'+
+        '<div class="atas"><span class="nama">'+namaPenyakit(p.nama)+'</span><span class="lbl PENYAKIT">PENYAKIT</span></div>'+
+        '<div class="meta">'+esc(p.kategori)+' · '+p.dokumen+' halaman sumber · '+p.record+' kalimat</div>'+
+        '<div class="buka">Buka halaman →</div></button>').join('')+'</div>';
+  }
+
+  if(hasil.length){
+    isi += '<h3 class="bagian hasil-kelompok">Istilah</h3><div class="hasil-grid">'+
+      hasil.slice(0,120).map(e=>{
+        let cuplik = '';
+        const cocokDiKalimat = qn && !e._cocokLema && e._cocokKal && e._kalTujuan!=null;
+        if(cocokDiKalimat){
+          const k=KAL[e._kalTujuan];
+          cuplik='<div class="cuplik">'+sorotCari(k.teks,state.q)+'</div>';
+        }
+        const n = e._nGabung || e.n;
+        const np = rinciPenyakit(kemGrupSemua(e)).length;
+        const kep = kepalaDari(e);
+        const arah = kep._i!==e._i ? ' · bentuk lain dari '+esc(gayaLema(kep.tampil, kep)) : '';
+        const tujuanKal = cocokDiKalimat ? ' data-k="'+e._kalTujuan+'"' : '';
+        return '<button class="hasil-kartu" data-i="'+e._i+'"'+tujuanKal+'>'+
+          '<div class="atas"><span class="nama">'+namaEntri(e)+'</span><span class="lbl '+e.label+'">'+e.label+'</span></div>'+
+          '<div class="meta">'+n+' penyebutan · '+np+' halaman penyakit'+arah+'</div>'+cuplik+
+          '<div class="buka">'+(cocokDiKalimat?'Lihat kalimat sumber →':'Buka istilah →')+'</div></button>';
+      }).join('')+'</div>'+
+      (hasil.length>120?'<p class="nota" style="margin-top:12px">Menampilkan 120 istilah teratas dari '+hasil.length+'. Gunakan filter di panel kiri untuk mempersempit hasil.</p>':'');
+  }
+
+  if(!pykCocok.length && !hasil.length){
+    isi = '<div class="hasil-pesan"><b>Tidak ada hasil yang cocok.</b><span>Coba kata atau frasa lain.</span></div>';
+  }
+
+  box.innerHTML = '<div class="hasil-utama">'+kepala+isi+'</div>';
+  box.querySelectorAll('[data-pyk]').forEach(b=>b.onclick=()=>{
+    simpanPosisiHasilAktif();
+    hasilDesktopAktif=false; hasilRuteAktif=false; bukaPenyakit(b.dataset.pyk);
+  });
+  box.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{
+    simpanPosisiHasilAktif();
+    hasilDesktopAktif=false; hasilRuteAktif=false; catatPencarian(state.q);
+    if(b.dataset.k!==undefined) bukaEntriKeKalimat(+b.dataset.i, +b.dataset.k);
+    else bukaEntri(+b.dataset.i);
+  });
+  box.scrollTop = 0;
+  box.focus({preventScroll:true});
 }
 
 /* ---------- penyorotan (berbatas kata) ---------- */
 function regexCari(q){
   const t = norm(q).split(" ").filter(Boolean).map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"));
   if(!t.length) return null;
-  // gugus 1 = pembatas kiri (boleh kosong di awal teks), gugus 2 = kecocokan
-  return new RegExp("(^|[^\\p{L}\\p{N}])(" + t.join("[^\\p{L}\\p{N}]+") + ")", "giu");
+  // batas kiri DAN kanan wajib: "mengi" tidak boleh cocok di dalam "mengira"
+  return new RegExp("(^|[^\\p{L}\\p{N}])(" + t.join("[^\\p{L}\\p{N}]+") + ")(?=$|[^\\p{L}\\p{N}])", "giu");
 }
 function cariSemua(teks, q){
   const re = regexCari(q); if(!re) return [];
@@ -1024,19 +1312,57 @@ function tampil(geser){
 /* Membuka bentuk apa pun akan membuka halaman BENTUK UTAMA-nya, dengan
    bentuk yang dipilih tersaring — jadi pemakai yang mencari istilah awam
    tetap melihat persis apa yang ia cari, di halaman istilah bakunya. */
-function bukaEntri(i, geser){
+function bukaEntri(i, geser, kalimatTujuan){
+  hasilDesktopAktif = false;
+  hasilRuteAktif = false;
   const e = ENTRI[i], kep = kepalaDari(e);
   if(e._kePenyakit){ bukaPenyakit(e._kePenyakit, geser, e.lema); return; }
   const bentuk = (kep._i!==e._i) ? e.lema : null;
   if(state.pilih !== kep._i || state.bentuk !== bentuk) state.atr = null;
+  if(kalimatTujuan!=null) state.atr = null; // target sumber tidak boleh tersembunyi oleh filter lama
   state.tampilan = "entri"; state.pilih = kep._i; state.bentuk = bentuk; state.batas = 8;
+
+  if(kalimatTujuan!=null){
+    const kems = bentuk ? e.kemunculan : kemGrupSemua(kep);
+    const khusus = g => (KAL[g.k].rel && KAL[g.k].rel!=="gejala_penyakit") ? 1 : 0;
+    /* Pakai urutan yang sama dengan gambarEntri agar batas tampilan cukup
+       untuk benar-benar merender kartu tujuan. */
+    const urut = kelompokKalimat(kems).sort((a,b)=>
+      ((state.q&&kalCocok.has(b.k)?1:0)-(state.q&&kalCocok.has(a.k)?1:0)) ||
+      (khusus(b)-khusus(a)));
+    const posisi = urut.findIndex(g=>g.k===kalimatTujuan);
+    if(posisi>=0) state.batas = Math.max(8, posisi+1);
+  }
+
   gambarDaftar(); tampil(geser); dorongRute();
+}
+function bukaEntriKeKalimat(i, k){
+  /* Jangan jalankan scroll-to-top milik navigasi biasa. Setelah render selesai,
+     gulir container yang benar: panel kanan di desktop, window di HP. */
+  bukaEntri(i, false, k);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    const box = document.getElementById("entri");
+    const target = box && box.querySelector('[data-kalimat="'+k+'"]');
+    if(!target) return;
+    if(layarMobile()){
+      const y = target.getBoundingClientRect().top + (window.pageYOffset||0) - 18;
+      try{ window.scrollTo({top:y, behavior:"smooth"}); }catch(err){ window.scrollTo(0,y); }
+    }else{
+      const br = box.getBoundingClientRect(), tr = target.getBoundingClientRect();
+      const y = box.scrollTop + (tr.top-br.top) - Math.max(18, box.clientHeight*0.28);
+      try{ box.scrollTo({top:Math.max(0,y), behavior:"smooth"}); }catch(err){ box.scrollTop=Math.max(0,y); }
+    }
+    target.classList.add("tujuan-pencarian");
+    setTimeout(()=>target.classList.remove("tujuan-pencarian"), 1800);
+  }));
 }
 function bukaBentuk(lema, geser){        // pilih bentuk dari dalam kelompok
   state.bentuk = lema || null; state.atr = null; state.batas = 8;
   state.tampilan = "entri"; tampil(geser); dorongRute();
 }
 function bukaPenyakit(nama, geser, bentuk){
+  hasilDesktopAktif = false;
+  hasilRuteAktif = false;
   if(state.buka !== nama || state.pbentuk !== (bentuk||null)) state.atr = null;
   state.tampilan="penyakit"; state.buka = nama;
   state.pbentuk = bentuk || null; state.pbatas = 6;
@@ -1100,9 +1426,9 @@ function gambarPenyakit(){
   const definisi = p.definisi.length
     ? p.definisi.map(d=>{
         const k = KAL[d.k];
-        return '<div class="kalimat" title="id '+k.id+' · dokumen '+esc(k.sid)+' · diambil '+esc(k.tgl)+'">'+
+        return '<div class="kalimat" data-kalimat="'+d.k+'" title="id '+k.id+' · dokumen '+esc(k.sid)+' · diambil '+esc(k.tgl)+'">'+
           '<div class="teks">'+gambarKalimat(k.teks, [[d.s, d.e]], "PENYAKIT", state.q)+'</div>'+
-          '<div class="sumber"><span>'+esc(k.pyk)+' · '+esc(k.kat)+'</span>'+
+          '<div class="sumber"><span>'+namaPenyakit(k.pyk)+' · '+esc(k.kat)+'</span>'+
           (k.url?'<a href="'+esc(k.url)+'" target="_blank" rel="noopener">buka sumber ↗</a>':'')+
           '</div></div>';
       }).join("")
@@ -1128,7 +1454,7 @@ function gambarPenyakit(){
       'Semua bentuk<span class="n">'+nSemuaP+'×</span></button>'+
     bentukP.map(x=>'<button class="vat" data-pbentuk="'+esc(x.lema)+'" aria-pressed="'+
       (pilihB && pilihB.lema===x.lema ? "true":"false")+'">'+
-      nm(x.tampil, x.lema)+'<span class="n">'+x.n+'×</span></button>').join("")+
+      namaBentuk(x)+'<span class="n">'+x.n+'×</span></button>').join("")+
     '</div></div>';
 
   const atrPBar = Object.keys(atrP).length
@@ -1152,7 +1478,7 @@ function gambarPenyakit(){
     || (milikP(a)-milikP(b)) || (a.k-b.k));
 
   const saringP = [];
-  if(pilihB) saringP.push('<b>Bentuk: '+esc(pilihB.tampil)+'</b>');
+  if(pilihB) saringP.push('<b>Bentuk: '+esc(gayaLema(pilihB.tampil, pilihB))+'</b>');
   if(atrAktP) saringP.push('<b>'+ATR_NAMA[state.atr.jenis]+': '+esc(atrAktP.nilai)+'</b>');
   const barSaringP = saringP.length
     ? '<div class="bar-saring">'+saringP.join('<span>·</span>')+
@@ -1163,7 +1489,7 @@ function gambarPenyakit(){
   const daftarKalP =
     barSaringP +
     '<p class="nota">'+kalP.length+' kalimat menyebut penyakit ini. Kalimat dari halaman '+
-      'tentang '+esc(p.nama)+' ditampilkan lebih dulu; sisanya berasal dari halaman penyakit '+
+      'tentang '+namaPenyakit(p.nama)+' ditampilkan lebih dulu; sisanya berasal dari halaman penyakit '+
       'lain yang turut menyebutnya.</p>' +
     kalP.slice(0, state.pbatas).map(g=>kartuKalimat({label:"PENYAKIT"}, g, state.q)).join("") +
     (kalP.length>state.pbatas
@@ -1175,13 +1501,13 @@ function gambarPenyakit(){
     '<div class="entri-kepala">'+
       '<div class="baris"><span class="eyebrow">Halaman penyakit</span>'+
       '<span class="lbl PENYAKIT">'+esc(p.kategori)+'</span></div>'+
-      '<h2>'+esc(p.nama)+'</h2>'+
+      '<h2>'+namaPenyakit(p.nama)+'</h2>'+
       '<div class="hitung">'+p.dokumen+' halaman sumber · '+p.record+' kalimat · '+
       hitung("GEJALA")+' gejala · '+hitung("KOMPLIKASI")+' komplikasi · '+
       hitung("OBAT")+' obat</div>'+
     '</div>'+
     '<p class="nota">Istilah di halaman ini dikumpulkan dari halaman kesehatan yang '+
-      'membahas '+esc(p.nama)+'. Angka pada tiap istilah adalah berapa kali ia disebut di '+
+      'membahas '+namaPenyakit(p.nama)+'. Angka pada tiap istilah adalah berapa kali ia disebut di '+
       'sana, dan tiap istilah dapat diklik untuk membaca kalimat sumbernya.</p>'+
 
     '<h3 class="bagian">Definisi — kalimat dari sumber</h3>'+ definisi +
@@ -1215,7 +1541,8 @@ function gambarEntri(){
   }
   const e = ENTRI[state.pilih];               // selalu bentuk utama kelompoknya
   const q = state.q;
-  const anggota = e._grup.map(i=>ENTRI[i]);
+  const anggotaSemua = e._grup.map(i=>ENTRI[i]);
+  const anggota = anggotaSemua.filter(x=>!x._silentGabung);
   const terpilih = state.bentuk ? anggota.find(x=>x.lema===state.bentuk) : null;
   const kemBentuk = terpilih ? terpilih.kemunculan : kemGrupSemua(e);
   const fakta = [];
@@ -1232,24 +1559,24 @@ function gambarEntri(){
         '<button class="vat" data-bentuk="'+esc(x.lema)+'" aria-pressed="'+
         (terpilih && terpilih.lema===x.lema ? "true":"false")+'" title="'+
         esc(BENTUK_NAMA[x._jenis]+" — "+(BENTUK_TEKS[x._jenis]||"bentuk yang dijadikan judul entri"))+'">'+
-        nm(x.tampil, x.lema)+'<span class="n">'+x.n+'× · '+BENTUK_NAMA[x._jenis]+'</span></button>').join("")+
+        namaBentuk(x)+'<span class="n">'+x.n+'× · '+BENTUK_NAMA[x._jenis]+'</span></button>').join("")+
       '</div></div>'+
       '<p class="nota">Semua bentuk di atas menunjuk hal yang sama dan berbagi satu halaman ini. '+
       'Pilih salah satu untuk melihat penyakit dan kalimat yang memakai bentuk itu saja.</p>';
   }
   if(e._bakuLuar){
     fakta.push(kartu("Bentuk yang dianjurkan",
-      esc(e._bakuLuar) +
+      esc(gayaLema(e._bakuLuar, e)) +
       '<div class="ket">Bentuk ini tidak pernah muncul sendiri di teks sumber, '+
       'jadi belum punya halaman tersendiri.</div>'));
   }
   if(e.induk) fakta.push(kartu("Nama lain dari penyakit",
     '<button class="kartu-pyk" data-pyk="'+esc(NAMA_DARI_INDUK[e.induk])+'" style="margin:2px 0 0">'+
-    '<i class="titik bg-PENYAKIT"></i><span class="nm">'+esc(NAMA_DARI_INDUK[e.induk])+'</span>'+
+    '<i class="titik bg-PENYAKIT"></i><span class="nm">'+namaPenyakit(NAMA_DARI_INDUK[e.induk])+'</span>'+
     '<span class="kt">buka halaman →</span></button>'+
     '<div class="ket">Salah satu dari sepuluh penyakit yang punya halaman sendiri di kamus ini.</div>'));
   if(e.tipe_obat.length) fakta.push(kartu("Tipe obat", e.tipe_obat.map(esc).join(", ")));
-  if(e.zat_aktif.length) fakta.push(kartu("Zat aktif", e.zat_aktif.map(esc).join(", ")+
+  if(e.zat_aktif.length) fakta.push(kartu("Zat aktif", e.zat_aktif.map(z=>esc(gayaLema(z, null))).join(", ")+
     '<div class="ket">Kandungan obat ini, dipetakan dari nama dagangnya.</div>'));
   // hanya tampilkan bila penulisannya benar-benar berbeda; beda huruf
   // besar-kecil saja ("batuk" vs "Batuk") bukan variasi yang berarti
@@ -1263,10 +1590,7 @@ function gambarEntri(){
   });
   if(grup.size>1) fakta.push(kartu("Ditulis juga sebagai",
     '<div class="varian">'+[...grup.values()].sort((a,b)=>b.n-a.n)
-      .map(v=>'<span>'+esc(v.t)+' · '+v.n+'</span>').join("")+'</div>'));
-
-  const pykSet = [...new Set(kemBentuk.map(m=>KAL[m.k].pyk))].sort();
-  fakta.push(kartu("Muncul pada halaman penyakit", pykSet.map(esc).join(", ")));
+      .map(v=>'<span>'+esc(gayaLema(v.t, (terpilih || e)))+' · '+v.n+'</span>').join("")+'</div>'));
 
   // --- saringan keterangan (derajat/durasi/suhu/warna dahak) ---
   const atrBentuk = hitungAtr(kemBentuk);
@@ -1274,6 +1598,10 @@ function gambarEntri(){
     ? atrBentuk[state.atr.jenis].find(v=>v.nilai===state.atr.nilai)
     : null;
   const kemPakai = atrAktif ? atrAktif.kems : kemBentuk;
+
+  /* Semua ringkasan yang bergantung pada kemunculan harus mengikuti filter aktif. */
+  const pykSet = [...new Set(kemPakai.map(m=>KAL[m.k].pyk))].sort();
+  fakta.push(kartu("Muncul pada halaman penyakit", pykSet.map(namaPenyakit).join(", ")));
 
   /* Kalimat diurutkan: cocok pencarian dulu, lalu peran selain gejala
      penyakit — supaya kalimat yang mengubah arti (efek samping obat,
@@ -1292,14 +1620,14 @@ function gambarEntri(){
   const relKhusus = Object.entries(hitRel);
 
   // penjelasan dari teks sumber (hanya bila sumbernya memuatnya)
-  const sumberJelas = [].concat(...anggota.map(x=>x.penjelasan||[]));
+  const sumberJelas = [].concat(...anggotaSemua.map(x=>x.penjelasan||[]));
   const penjelasan = sumberJelas.length
     ? '<h3 class="bagian">Penjelasan dari teks sumber</h3>' +
       sumberJelas.map(d=>{
         const k = KAL[d.k];
         return '<div class="kalimat" title="id '+k.id+' · dokumen '+esc(k.sid)+' · diambil '+esc(k.tgl)+'">'+
           '<div class="teks">'+gambarKalimat(k.teks, [[d.s,d.e]], e.label, q)+'</div>'+
-          '<div class="sumber"><span>'+esc(k.pyk)+' · '+esc(k.kat)+'</span>'+
+          '<div class="sumber"><span>'+namaPenyakit(k.pyk)+' · '+esc(k.kat)+'</span>'+
           (k.url?'<a href="'+esc(k.url)+'" target="_blank" rel="noopener">buka sumber ↗</a>':'')+
           '</div></div>';
       }).join("")
@@ -1316,7 +1644,7 @@ function gambarEntri(){
           const pyk = [...new Set(v.kems.map(o=>KAL[o.k].pyk))];
           const bentuk = [...v.bentuk];
           const judul = (bentuk.length>1 ? "Ditulis di sumber sebagai: "+bentuk.join(" \u00b7 ")+"\n" : "")+
-                        "Penyakit: "+pyk.join(", ");
+                        "Penyakit: "+pyk.map(namaPenyakitTeks).join(", ");
           return '<button class="vat" data-atr="'+j+'" data-nilai="'+esc(v.nilai)+'" '+
             'aria-pressed="'+(aktif?"true":"false")+'" title="'+esc(judul)+'">'+
             esc(v.nilai)+'<span class="n">'+v.kems.length+'× · '+pyk.length+' penyakit</span></button>';
@@ -1326,7 +1654,7 @@ function gambarEntri(){
     : "";
 
   const saringan = [];
-  if(terpilih) saringan.push('<b>Bentuk: '+esc(terpilih.tampil)+'</b>');
+  if(terpilih) saringan.push('<b>Bentuk: '+esc(gayaLema(terpilih.tampil, terpilih))+'</b>');
   if(atrAktif) saringan.push('<b>'+ATR_NAMA[state.atr.jenis]+': '+esc(atrAktif.nilai)+'</b>');
   const barSaring = saringan.length
     ? '<div class="bar-saring">'+saringan.join('<span>·</span>')+
@@ -1346,8 +1674,8 @@ function gambarEntri(){
       (anggota.length>1 ? ' · '+anggota.length+' bentuk penulisan' : '')+'</div>'+
     '</div>' +
     (terpilih ? '<p class="nota nota-arah">'+
-       (BENTUK_ARAH[terpilih._jenis]||BENTUK_ARAH.awam)(nm(terpilih.tampil, terpilih.lema),
-                                                        nm(e.tampil, e.lema))+'</p>' : '') +
+       (BENTUK_ARAH[terpilih._jenis]||BENTUK_ARAH.awam)(namaBentuk(terpilih),
+                                                        namaBentuk(e))+'</p>' : '') +
     (e.kontekstual ? '<div class="peringatan"><b>Arti bergantung konteks.</b> Jenis istilah ini '+
       'berubah menurut kalimatnya. Baca kalimat sumbernya sebelum menyimpulkan.</div>' : '') +
     (relKhusus.length ? '<div class="peringatan"><b>Perhatikan konteksnya.</b> '+
@@ -1384,7 +1712,7 @@ function rujukSilang(e, kems){
   const lain  = rinci.filter(v=>v.baik===0);
   const kartuPyk = (v, khusus) =>
     '<button class="kartu-pyk" data-pyk="'+esc(v.pyk)+'">'+
-    '<i class="titik bg-PENYAKIT"></i><span class="nm">'+esc(v.pyk)+'</span>'+
+    '<i class="titik bg-PENYAKIT"></i><span class="nm">'+namaPenyakit(v.pyk)+'</span>'+
     '<span class="kt">'+RUJUK_LABEL[e.label]+' · '+(khusus?v.khusus:v.baik)+'×</span></button>';
   let out = '<h3 class="bagian">'+RUJUK_JUDUL[e.label]+'</h3>';
   out += utama.length
@@ -1489,12 +1817,12 @@ function kartuKalimat(e, g, q){
              (k.trk?" · "+esc(k.trk):"")+'</span>';
     if(lain) catatan = '<div class="catatan-relasi">'+esc(RELASI_TEKS[k.rel]||"")+'</div>';
   }
-  return '<div class="kalimat" title="id '+k.id+' · dokumen '+esc(k.sid)+' · diambil '+esc(k.tgl)+'">'+
+  return '<div class="kalimat" data-kalimat="'+g.k+'" title="id '+k.id+' · dokumen '+esc(k.sid)+' · diambil '+esc(k.tgl)+'">'+
     '<div class="teks">'+gambarKalimat(k.teks, m, e.label, q)+
       (m.length>1?'<span class="offset">disebut '+m.length+'×</span>':'')+'</div>'+
     ((atr.length||relasi)?'<div class="atribut">'+relasi+atr.join("")+'</div>':'')+
     catatan +
-    '<div class="sumber"><span>'+esc(k.pyk)+' · '+esc(k.kat)+'</span>'+
+    '<div class="sumber"><span>'+namaPenyakit(k.pyk)+' · '+esc(k.kat)+'</span>'+
       (k.url?'<a href="'+esc(k.url)+'" target="_blank" rel="noopener">buka sumber ↗</a>':'')+'</div>'+
   '</div>';
 }
@@ -1515,12 +1843,13 @@ function bangunSaringan(){
       if(state.label.has(l)) state.label.delete(l); else state.label.add(l);
       b.setAttribute("aria-pressed", state.label.has(l));
       cari();
+      segarkanHasilDesktopJikaAktif();
     };
   });
   const pyk = [...new Set(KAL.map(k=>k.pyk))].sort();
   document.getElementById("saring-penyakit").innerHTML =
     '<option value="">Semua penyakit (10)</option>' +
-    pyk.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join("");
+    pyk.map(p=>'<option value="'+esc(p)+'">'+namaPenyakit(p)+'</option>').join("");
 }
 
 /* ---------- tentang ---------- */
@@ -1620,30 +1949,92 @@ try{ ruteAwal = history.state || bacaRuteSesi(); }catch(err){ ruteAwal = bacaRut
 if(ruteAwal){
   terapkanRute(ruteAwal);
   // Pastikan entri riwayat aktif memiliki state yang sama tanpa menambah riwayat baru.
-  try{ history.replaceState(rute(), ""); }catch(err){ riwayatHidup = false; }
+  try{ history.replaceState(Object.assign({}, ruteAwal, rute(), {hasil:!!ruteAwal.hasil,
+        hasilScroll:ruteAwal.hasilScroll||0}), ""); }catch(err){ riwayatHidup = false; }
 }else{
   cari(); gambarEntri(); dorongRute(true);
 }
 
 const q = document.getElementById("q");
 let jeda;
-q.addEventListener("input", ()=>{ clearTimeout(jeda); jeda = setTimeout(()=>{
-  state.q=q.value; state.bentuk=null; state.pbentuk=null; state.atr=null; cari(); }, 110); });
-q.addEventListener("keydown", ev=>{
-  if(ev.key==="Enter" && (pykTepat || hasil.length || pykCocok.length)){
-    catatPencarian(q.value);
-    if(pykTepat) bukaPenyakit(pykTepat);
-    else if(hasil.length) bukaEntri(hasil[0]._i);
-    else bukaPenyakit(pykCocok[0].nama);
-  }
-  if(ev.key==="Escape"){ q.value=""; state.q=""; cari(); }
+
+/* Apakah teks Enter di desktop merupakan kata/frasa utuh yang dikenal.
+   Live search tetap boleh menampilkan kandidat dari awalan seperti `bron`,
+   tetapi Enter baru dianggap sah bila bukan sekadar potongan kata. */
+function enterDesktopValid(qn){
+  if(!qn) return true;
+  if(PU.some(p=>cocokFrasaUtuh(p._hay, qn))) return true;
+  if(ENTRI.some(e=>!e._silentGabung && cocokFrasaUtuh(e._hay, qn))) return true;
+  /* Reverse lookup frasa awam tetap diizinkan bila frasanya benar-benar ada
+     sebagai rangkaian kata utuh pada halaman yang sedang dipilih. */
+  if(qn.includes(" ") && KAL.some(k=>(!state.penyakit || k.pyk===state.penyakit) && cocokFrasaUtuh(k._n, qn))) return true;
+  return false;
+}
+function scrollKeHasilMobile(){
+  if(!(window.matchMedia && window.matchMedia("(max-width:860px)").matches)) return;
+  document.body.classList.remove("lihat-entri");
+  const kotak = document.getElementById("q"); if(kotak) kotak.blur();
+  requestAnimationFrame(()=>{
+    const target = document.getElementById("hasil-pencarian");
+    if(!target) return;
+    const y = target.getBoundingClientRect().top + (window.pageYOffset||0) - 8;
+    try{ window.scrollTo({top:y, behavior:"smooth"}); }catch(err){ window.scrollTo(0,y); }
+  });
+}
+function sinkronCariSekarang(){
+  clearTimeout(jeda);
+  state.q=q.value; state.bentuk=null; state.pbentuk=null; state.atr=null;
+  enterGagal=null; cari();
+}
+q.addEventListener("input", ()=>{
+  /* Panel kanan hanya mewakili pencarian yang SUDAH dikonfirmasi dengan Enter.
+     Begitu teks berubah lagi, kembali ke halaman/detail sebelumnya. */
+  pulihkanPanelSetelahHasil();
+  enterGagal=null;
+  clearTimeout(jeda); jeda = setTimeout(()=>{
+    state.q=q.value; state.bentuk=null; state.pbentuk=null; state.atr=null; cari();
+  }, 110);
 });
-document.getElementById("hapus").onclick = ()=>{ q.value=""; state.q=""; q.focus(); cari(); };
-document.getElementById("saring-penyakit").onchange = ev=>{ state.penyakit=ev.target.value; cari(); };
-document.getElementById("urut").onchange = ev=>{ state.urut=ev.target.value; cari(); };
+q.addEventListener("keydown", ev=>{
+  if(ev.key==="Enter"){
+    ev.preventDefault();
+    sinkronCariSekarang();
+    const qn = norm(state.q);
+    if(qn) catatPencarian(q.value);
+
+    if(window.matchMedia && window.matchMedia("(max-width:860px)").matches){
+      /* HP: Enter tidak memvalidasi/auto-open; cukup bawa pengguna ke hasil kiri. */
+      hasilDesktopAktif = false;
+      hasilRuteAktif = true;
+      rekamRuteHasil(false);
+      scrollKeHasilMobile();
+    }else{
+      /* Desktop: baru SETELAH Enter, hasil dipresentasikan di panel kanan.
+         Potongan kata tetap boleh muncul live di kiri, tetapi ditolak saat Enter. */
+      enterGagal = (qn && !enterDesktopValid(qn)) ? q.value.trim() : null;
+      gambarDaftar();              // panel kiri tetap menampilkan kandidat live
+      gambarHasilDesktop();        // panel kanan muncul hanya pada Enter
+      rekamRuteHasil(false);
+      const d = document.getElementById("daftar"); if(d) d.scrollTop = 0;
+    }
+  }
+  if(ev.key==="Escape"){ pulihkanPanelSetelahHasil(); q.value=""; state.q=""; enterGagal=null; cari(); }
+});
+document.getElementById("hapus").onclick = ()=>{ pulihkanPanelSetelahHasil(); q.value=""; state.q=""; enterGagal=null; q.focus(); cari(); };
+document.getElementById("saring-penyakit").onchange = ev=>{
+  state.penyakit=ev.target.value; cari(); segarkanHasilDesktopJikaAktif();
+};
+document.getElementById("urut").onchange = ev=>{
+  state.urut=ev.target.value; cari(); segarkanHasilDesktopJikaAktif();
+};
 document.getElementById("daftar").addEventListener("click", ev=>{
   const b = ev.target.closest(".item");
-  if(b){ catatPencarian(state.q); bukaEntri(+b.dataset.i); }
+  if(b){
+    simpanPosisiHasilAktif();
+    catatPencarian(state.q);
+    if(b.dataset.k!==undefined) bukaEntriKeKalimat(+b.dataset.i, +b.dataset.k);
+    else bukaEntri(+b.dataset.i);
+  }
 });
 if(typeof window!=="undefined" && window.addEventListener)
   window.addEventListener("popstate", ev=>terapkanRute(ev.state));
